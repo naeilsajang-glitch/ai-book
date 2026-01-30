@@ -13,10 +13,7 @@ app = FastAPI(
 )
 
 # CORS Configuration
-origins = [
-    "http://localhost:3000",
-    "http://localhost:8000",
-]
+origins = ["*"]
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

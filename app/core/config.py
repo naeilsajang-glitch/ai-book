@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     LLAMA_CLOUD_API_KEY: str
     
     # Core
-    SECRET_KEY: str
+    SECRET_KEY: str = "dev-secret-key-change-it-in-prod"
     ALGORITHM: str = "HS256"
 
     model_config = SettingsConfigDict(case_sensitive=True, env_file=".env", env_file_encoding="utf-8", extra="ignore")
