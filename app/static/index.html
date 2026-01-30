@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Morphing Book</title>
+    <style>
+        body { font-family: 'Suit', 'Pretendard', sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background-color: #f5f5f7; }
+        .container { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+        h1 { color: #333; text-align: center; margin-bottom: 30px; }
+        
+        .section { margin-bottom: 30px; padding: 20px; border: 1px solid #eee; border-radius: 12px; }
+        .section h2 { margin-top: 0; font-size: 1.2rem; color: #555; }
+        
+        input[type="file"] { display: block; margin: 10px 0; }
+        button { background-color: #007AFF; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: background 0.2s; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #ccc; }
+        
+        #chat-box { height: 400px; overflow-y: auto; border: 1px solid #eee; padding: 20px; border-radius: 12px; margin-bottom: 15px; background: #fafafa; }
+        .message { margin-bottom: 15px; line-height: 1.6; }
+        .message.user { text-align: right; }
+        .message.user .text { background-color: #007AFF; color: white; display: inline-block; padding: 10px 15px; border-radius: 15px 15px 2px 15px; }
+        .message.ai .text { background-color: white; border: 1px solid #ddd; display: inline-block; padding: 10px 15px; border-radius: 15px 15px 15px 2px; }
+        
+        .input-group { display: flex; gap: 10px; }
+        .input-group input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+        .input-group input:focus { border-color: #007AFF; }
+        
+        .status { margin-top: 10px; font-size: 0.9rem; color: #666; }
+        pre { white-space: pre-wrap; margin: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📚 The Morphing Book</h1>
+        
+        <!-- Upload Section -->
+        <div class="section" id="upload-section">
+            <h2>1. PDF 책 업로드</h2>
+            <input type="file" id="pdf-file" accept=".pdf">
+            <button onclick="uploadBook()" id="upload-btn">업로드 및 분석 시작</button>
+            <div class="status" id="upload-status"></div>
+        </div>
+
+        <!-- Chat Section -->
+        <div class="section" id="chat-section" style="opacity: 0.5; pointer-events: none;">
+            <h2>2. AI와 대화하기</h2>
+            <div id="chat-box"></div>
+            <div class="input-group">
+                <input type="text" id="user-input" placeholder="책 내용에 대해 물어보세요..." onkeypress="if(event.key==='Enter') sendMessage()">
+                <button onclick="sendMessage()" id="send-btn">전송</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentBookId = null;
+        const API_BASE = '/api/v1';
+
+        async function uploadBook() {
+            const fileInput = document.getElementById('pdf-file');
+            const statusDiv = document.getElementById('upload-status');
+            const btn = document.getElementById('upload-btn');
+
+            if (!fileInput.files[0]) {
+                alert('파일을 선택해주세요.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            btn.disabled = true;
+            statusDiv.innerHTML = '⏳ 업로드 및 분석 중입니다... (잠시만 기다려주세요, 최대 1분)';
+
+            try {
+                const response = await fetch(`${API_BASE}/books/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    currentBookId = data.book_id;
+                    statusDiv.innerHTML = `✅ 분석 완료! (Book ID: ${currentBookId})`;
+                    statusDiv.style.color = 'green';
+                    
+                    // Enable Chat
+                    document.getElementById('chat-section').style.opacity = '1';
+                    document.getElementById('chat-section').style.pointerEvents = 'auto';
+                    
+                    addMessage('system', `"${fileInput.files[0].name}" 책이 준비되었습니다. 무엇이든 물어보세요!`);
+                } else {
+                    throw new Error(data.detail || data.msg || 'Upload failed');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `❌ 오류 발생: ${error.message}`;
+                statusDiv.style.color = 'red';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('user-input');
+            const message = input.value.trim();
+            if (!message || !currentBookId) return;
+
+            addMessage('user', message);
+            input.value = '';
+
+            const aiMsgId = addMessage('ai', '...');
+            const aiMsgEl = document.getElementById(aiMsgId).querySelector('.text');
+            aiMsgEl.innerHTML = ''; // Clear loading dots
+
+            try {
+                const response = await fetch(`${API_BASE}/books/${currentBookId}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const json = JSON.parse(line.substring(6));
+                                if (json.content) {
+                                    aiMsgEl.innerHTML += json.content.replace(/\n/g, '<br>');
+                                    document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
+                                }
+                            } catch (e) { console.error('Error parsing SSE', e); }
+                        }
+                    }
+                }
+            } catch (error) {
+                aiMsgEl.innerHTML += `\n[오류 발생: ${error.message}]`;
+            }
+        }
+
+        function addMessage(role, text) {
+            const box = document.getElementById('chat-box');
+            const id = 'msg-' + Date.now();
+            const div = document.createElement('div');
+            
+            div.id = id;
+            div.className = `message ${role}`;
+            div.innerHTML = `<div class="text">${text}</div>`;
+            
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+            return id;
+        }
+    </script>
+</body>
+</html>
